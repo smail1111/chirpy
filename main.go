@@ -26,6 +26,14 @@ type User struct {
 	Email     string    `json:"email"`
 }
 
+type Chirp struct {
+	ID        string    `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Body      string    `json:"body"`
+	UserID    string    `json:"user_id"`
+}
+
 func main() {
 	godotenv.Load()
 
@@ -49,8 +57,11 @@ func main() {
 		serveMux.HandleFunc("GET /api/healthz", handleHealthz)
 		serveMux.HandleFunc("GET /admin/metrics", config.handleMetrics)
 		serveMux.HandleFunc("POST /admin/reset", config.handleReset)
-		serveMux.HandleFunc("POST /api/validate_chirp", handleValidateChirp)
 		serveMux.HandleFunc("POST /api/users", config.handleCreateUser)
+		serveMux.HandleFunc("POST /api/chirps", config.handleCreateChirp)
+		serveMux.HandleFunc("GET /api/chirps", config.handleGetChirps)
+		serveMux.HandleFunc("GET /api/chirps/{id}", config.handleGetChirp)
+		serveMux.HandleFunc("POST /api/login", config.handleLogin)
 
 		server := &http.Server{
 			Addr:    ":8080",

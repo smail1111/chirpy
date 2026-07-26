@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+
+	"github.com/smail1111/chirpy/internal/database"
 )
 
 type errorResponse struct {
@@ -50,4 +52,23 @@ func censorBadWords(text string) string {
 		censored = append(censored, word)
 	}
 	return strings.Join(censored, " ")
+}
+
+func convertChirp(chirp database.Chirp) Chirp {
+	return Chirp{
+		ID:        chirp.ID,
+		CreatedAt: chirp.CreatedAt,
+		UpdatedAt: chirp.UpdatedAt,
+		Body:      chirp.Body,
+		UserID:    chirp.UserID,
+	}
+}
+
+func convertUser(user database.User) User {
+	return User{
+		user.ID,
+		user.CreatedAt,
+		user.UpdatedAt,
+		user.Email,
+	}
 }
