@@ -17,6 +17,7 @@ type apiConfig struct {
 	fileserverHits atomic.Int32
 	platform       string
 	queries        *database.Queries
+	secret         string
 }
 
 type User struct {
@@ -38,7 +39,10 @@ func main() {
 	godotenv.Load()
 
 	DB_URL := os.Getenv("DB_URL")
+
 	PLATFORM := os.Getenv("PLATFORM")
+
+	SECRET := os.Getenv("SECRET")
 
 	db, er := sql.Open("postgres", DB_URL)
 
@@ -49,26 +53,40 @@ func main() {
 		config := apiConfig{
 			queries:  database.New(db),
 			platform: PLATFORM,
+			secret:   SECRET,
 		}
 
 		serveMux := http.NewServeMux()
 
 		serveMux.HandleFunc("GET /app", config.middlewareIncrement(http.StripPrefix("/app", http.FileServer(http.Dir(".")))))
+
 		serveMux.HandleFunc("GET /api/healthz", handleHealthz)
+
 		serveMux.HandleFunc("GET /admin/metrics", config.handleMetrics)
+
 		serveMux.HandleFunc("POST /admin/reset", config.handleReset)
+
 		serveMux.HandleFunc("POST /api/users", config.handleCreateUser)
+
 		serveMux.HandleFunc("POST /api/chirps", config.handleCreateChirp)
+
 		serveMux.HandleFunc("GET /api/chirps", config.handleGetChirps)
+
 		serveMux.HandleFunc("GET /api/chirps/{id}", config.handleGetChirp)
+
 		serveMux.HandleFunc("POST /api/login", config.handleLogin)
+
+		serveMux.HandleFunc("POST /api/refresh", config.handleRefresh)
+
+		serveMux.HandleFunc("POST /api/revoke", config.handleRevoke)
 
 		server := &http.Server{
 			Addr:    ":8080",
 			Handler: serveMux,
 		}
 
-		if er := server.ListenAndServe(); er != nil {
+		er := server.ListenAndServe()
+		if er != nil {
 			fmt.Println(er.Error())
 		}
 	}

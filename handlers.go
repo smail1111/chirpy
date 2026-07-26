@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/smail1111/chirpy/internal/auth"
 	"github.com/smail1111/chirpy/internal/database"
 )
@@ -66,27 +68,36 @@ func (cfg *apiConfig) handleCreateUser(rs http.ResponseWriter, rq *http.Request)
 
 func (cfg *apiConfig) handleCreateChirp(rs http.ResponseWriter, rq *http.Request) {
 	type Input struct {
-		Body   string `json:"body"`
-		UserID string `json:"user_id"`
+		Body string `json:"body"`
 	}
 
-	input := Input{}
-	decoder := json.NewDecoder(rq.Body)
-	er := decoder.Decode(&input)
+	token, er := auth.GetBearerToken(rq.Header)
 	if er != nil {
 		returnErrorResponse(rs, 400, er.Error())
 	} else {
-		if strings.Count((input.Body), "")-1 > 140 {
-			returnErrorResponse(rs, 400, "Chirp is too long")
+		id, er := auth.ValidateJWT(token, cfg.secret)
+		if er != nil {
+			returnErrorResponse(rs, 401, "Unauthorized")
 		} else {
-			chirp, er := cfg.queries.CreateChirp(rq.Context(), database.CreateChirpParams{
-				Body:   censorBadWords(input.Body),
-				UserID: input.UserID,
-			})
+			input := Input{}
+			decoder := json.NewDecoder(rq.Body)
+			er = decoder.Decode(&input)
 			if er != nil {
 				returnErrorResponse(rs, 400, er.Error())
 			} else {
-				returnJsonResponse(rs, 201, convertChirp(chirp))
+				if strings.Count((input.Body), "")-1 > 140 {
+					returnErrorResponse(rs, 400, "Chirp is too long")
+				} else {
+					chirp, er := cfg.queries.CreateChirp(rq.Context(), database.CreateChirpParams{
+						Body:   censorBadWords(input.Body),
+						UserID: id.String(),
+					})
+					if er != nil {
+						returnErrorResponse(rs, 400, er.Error())
+					} else {
+						returnJsonResponse(rs, 201, convertChirp(chirp))
+					}
+				}
 			}
 		}
 	}
@@ -135,13 +146,83 @@ func (cfg *apiConfig) handleLogin(rs http.ResponseWriter, rq *http.Request) {
 			matched, er := auth.CheckPasswordHash(input.Password, user.HashedPassword)
 			if er != nil {
 				returnErrorResponse(rs, 400, er.Error())
-			} else {
-				if matched {
-					returnJsonResponse(rs, 200, convertUser(user))
+			} else if matched {
+				token, er := auth.MakeJWT(uuid.MustParse(user.ID), cfg.secret, time.Second*3600)
+				if er != nil {
+					returnErrorResponse(rs, 400, er.Error())
 				} else {
-					returnErrorResponse(rs, 401, "Password Incorrect")
+					refreshToken := auth.MakeRefreshToken()
+
+					_, er := cfg.queries.CreateRefreshToken(rq.Context(), database.CreateRefreshTokenParams{
+						Token:  refreshToken,
+						UserID: user.ID,
+					})
+
+					if er != nil {
+						returnErrorResponse(rs, 400, er.Error())
+					} else {
+						returnJsonResponse(rs, 200, struct {
+							User
+							Token        string `json:"token"`
+							RefreshToken string `json:"refresh_token"`
+						}{
+							User:         convertUser(user),
+							Token:        token,
+							RefreshToken: refreshToken,
+						})
+					}
 				}
+			} else {
+				returnErrorResponse(rs, 401, "Password Incorrect")
 			}
 		}
 	}
+}
+
+func (cfg *apiConfig) handleRefresh(rs http.ResponseWriter, rq *http.Request) {
+	headerToken, er := auth.GetBearerToken(rq.Header)
+	if er != nil {
+		returnErrorResponse(rs, 400, er.Error())
+		return
+	}
+
+	refreshToken, er := cfg.queries.GetRefreshToken(rq.Context(), headerToken)
+	if er != nil || refreshToken.RevokedAt.Valid == true {
+		returnErrorResponse(rs, 401, "Unauthorized")
+		return
+	}
+
+	user, er := cfg.queries.GetUserFromRefreshToken(rq.Context(), refreshToken.Token)
+	if er != nil {
+		returnErrorResponse(rs, 400, er.Error())
+		return
+	}
+
+	accessToken, er := auth.MakeJWT(uuid.MustParse(user.ID), cfg.secret, time.Second*3600)
+	if er != nil {
+		returnErrorResponse(rs, 400, er.Error())
+		return
+	}
+
+	returnJsonResponse(rs, 200, struct {
+		Token string `json:"token"`
+	}{
+		Token: accessToken,
+	})
+}
+
+func (cfg *apiConfig) handleRevoke(rs http.ResponseWriter, rq *http.Request) {
+	token, er := auth.GetBearerToken(rq.Header)
+	if er != nil {
+		returnErrorResponse(rs, 400, er.Error())
+		return
+	}
+
+	er = cfg.queries.RevokeRefreshToken(rq.Context(), token)
+	if er != nil {
+		returnErrorResponse(rs, 400, er.Error())
+		return
+	}
+
+	rs.WriteHeader(204)
 }
