@@ -71,12 +71,12 @@ func convertUser(user database.User) User {
 		user.CreatedAt,
 		user.UpdatedAt,
 		user.Email,
+		user.IsChirpyRed,
 	}
 }
 
 func (cfg *apiConfig) middlewareAuthorizeUser(handler func(rs http.ResponseWriter, rq *http.Request,
 	user database.User)) func(http.ResponseWriter, *http.Request) {
-
 	return func(rs http.ResponseWriter, rq *http.Request) {
 		headerToken, er := auth.GetBearerToken(rq.Header)
 		if er != nil {

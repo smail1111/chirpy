@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -21,7 +22,10 @@ func handleHealthz(rs http.ResponseWriter, rq *http.Request) {
 func (cfg *apiConfig) handleMetrics(rs http.ResponseWriter, rq *http.Request) {
 	rs.Header().Set("Content-Type", "text/html")
 	rs.WriteHeader(200)
-	rs.Write(fmt.Appendf([]byte{}, "<html><body><h1>Welcome, Chirpy Admin</h1><p>Chirpy has been visited %d times!</p></body></html>", cfg.fileserverHits.Load()))
+	rs.Write(fmt.Appendf([]byte{},
+		"<html><body><h1>Welcome, Chirpy Admin</h1><p>Chirpy has been visited %d times!</p></body></html>",
+		cfg.fileserverHits.Load(),
+	))
 }
 
 func (cfg *apiConfig) handleReset(rs http.ResponseWriter, rq *http.Request) {
@@ -95,7 +99,23 @@ func (cfg *apiConfig) handleCreateChirp(rs http.ResponseWriter, rq *http.Request
 }
 
 func (cfg *apiConfig) handleGetChirps(rs http.ResponseWriter, rq *http.Request) {
-	chirps, er := cfg.queries.GetChirps(rq.Context())
+	var chirps []database.Chirp
+	var er error
+
+	if author_id := rq.URL.Query().Get("author_id"); author_id != "" {
+		chirps, er = cfg.queries.GetChirpsByAuthorID(rq.Context(), author_id)
+	} else {
+		chirps, er = cfg.queries.GetChirps(rq.Context())
+	}
+
+	slices.SortFunc(chirps, func(a, b database.Chirp) int {
+		return strings.Compare(a.CreatedAt.String(), b.CreatedAt.String())
+	})
+
+	if rq.URL.Query().Get("sort") == "desc" {
+		slices.Reverse(chirps)
+	}
+
 	if er != nil {
 		returnErrorResponse(rs, 500, er.Error())
 	} else {
@@ -271,6 +291,40 @@ func (cfg *apiConfig) handleDeleteChirp(rs http.ResponseWriter, rq *http.Request
 	if er != nil {
 		returnErrorResponse(rs, 500, er.Error())
 		return
+	}
+
+	rs.WriteHeader(204)
+}
+
+func (cfg *apiConfig) handleUserUpgraded(rs http.ResponseWriter, rq *http.Request) {
+	apiKey, er := auth.GetAPIKey(rq.Header)
+	if er != nil || apiKey != cfg.polka_key {
+		returnErrorResponse(rs, 401, "Unauthorized")
+		return
+	}
+
+	type Input struct {
+		Event string `json:"event"`
+		Data  struct {
+			UserID string `json:"user_id"`
+		} `json:"data"`
+	}
+
+	input := Input{}
+	decoder := json.NewDecoder(rq.Body)
+
+	er = decoder.Decode(&input)
+	if er != nil {
+		returnErrorResponse(rs, 400, er.Error())
+		return
+	}
+
+	if input.Event == "user.upgraded" {
+		_, er = cfg.queries.UpgradeUser(rq.Context(), input.Data.UserID)
+		if er != nil {
+			returnErrorResponse(rs, 404, er.Error())
+			return
+		}
 	}
 
 	rs.WriteHeader(204)

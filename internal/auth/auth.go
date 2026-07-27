@@ -15,17 +15,21 @@ import (
 
 func HashPassword(password string) (string, error) {
 	hashed, er := argon2id.CreateHash(password, argon2id.DefaultParams)
+
 	if er != nil {
 		return "", er
 	}
+
 	return hashed, nil
 }
 
 func CheckPasswordHash(password, hash string) (bool, error) {
 	match, er := argon2id.ComparePasswordAndHash(password, hash)
+
 	if er != nil {
 		return false, er
 	}
+
 	return match, nil
 }
 
@@ -36,6 +40,7 @@ func MakeJWT(userID uuid.UUID, tokenSecret string, expiresIn time.Duration) (str
 		ExpiresAt: jwt.NewNumericDate(time.Now().Add(expiresIn)),
 		Subject:   userID.String(),
 	})
+
 	return token.SignedString([]byte(tokenSecret))
 }
 
@@ -43,24 +48,29 @@ func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
 	token, er := jwt.ParseWithClaims(tokenString, &jwt.RegisteredClaims{}, func(*jwt.Token) (any, error) {
 		return []byte(tokenSecret), nil
 	})
+
 	if er != nil {
 		return uuid.Nil, er
 	}
+
 	str, er := token.Claims.GetSubject()
+
 	if er != nil {
 		return uuid.Nil, er
 	}
+
 	return uuid.Parse(str)
 }
 
 func GetBearerToken(headers http.Header) (string, error) {
-	auth, ok := headers["Authorization"]
+	auth := headers.Get("Authorization")
 
-	if !ok {
-		return "", fmt.Errorf("No Authorization")
+	if auth == "" {
+		return auth, fmt.Errorf("No Authorization")
 	}
 
-	split := strings.Split(auth[0], " ")
+	split := strings.Split(auth, " ")
+
 	if len(split) < 2 || split[0] != "Bearer" {
 		return "", fmt.Errorf("Invalid Header Format")
 	}
@@ -70,6 +80,24 @@ func GetBearerToken(headers http.Header) (string, error) {
 
 func MakeRefreshToken() string {
 	key := make([]byte, 32)
+
 	rand.Read(key)
+
 	return hex.EncodeToString(key)
+}
+
+func GetAPIKey(headers http.Header) (string, error) {
+	auth := headers.Get("Authorization")
+
+	if auth == "" {
+		return auth, fmt.Errorf("No Authorization")
+	}
+
+	split := strings.Split(auth, " ")
+
+	if len(split) < 2 || split[0] != "ApiKey" {
+		return "", fmt.Errorf("Invalid Header Format")
+	}
+
+	return split[1], nil
 }

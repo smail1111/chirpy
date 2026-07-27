@@ -18,13 +18,15 @@ type apiConfig struct {
 	platform       string
 	queries        *database.Queries
 	secret         string
+	polka_key      string
 }
 
 type User struct {
-	ID        string    `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Email     string    `json:"email"`
+	ID          string    `json:"id"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	Email       string    `json:"email"`
+	IsChirpyRed bool      `json:"is_chirpy_red"`
 }
 
 type Chirp struct {
@@ -39,21 +41,19 @@ func main() {
 	godotenv.Load()
 
 	DB_URL := os.Getenv("DB_URL")
-
 	PLATFORM := os.Getenv("PLATFORM")
-
 	SECRET := os.Getenv("SECRET")
+	POLKA_KEY := os.Getenv("POLKA_KEY")
 
 	db, er := sql.Open("postgres", DB_URL)
-
 	if er != nil {
 		fmt.Println(er.Error())
 	} else {
-
 		config := apiConfig{
-			queries:  database.New(db),
-			platform: PLATFORM,
-			secret:   SECRET,
+			queries:   database.New(db),
+			platform:  PLATFORM,
+			secret:    SECRET,
+			polka_key: POLKA_KEY,
 		}
 
 		serveMux := http.NewServeMux()
@@ -83,6 +83,8 @@ func main() {
 		serveMux.HandleFunc("PUT /api/users", config.middlewareAuthorizeUser(config.handleUpdateUser))
 
 		serveMux.HandleFunc("DELETE /api/chirps/{id}", config.middlewareAuthorizeUser(config.handleDeleteChirp))
+
+		serveMux.HandleFunc("POST /api/polka/webhooks", config.handleUserUpgraded)
 
 		server := &http.Server{
 			Addr:    ":8080",
