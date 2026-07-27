@@ -18,7 +18,7 @@ set revoked_at = now(), updated_at = now()
 where token = $1;
 
 -- name: GetUserFromRefreshToken :one
-select * from users
+select users.* from users
 join refresh_tokens on refresh_tokens.user_id = users.id
 where refresh_tokens.token = $1
 limit 1;

@@ -68,7 +68,7 @@ func main() {
 
 		serveMux.HandleFunc("POST /api/users", config.handleCreateUser)
 
-		serveMux.HandleFunc("POST /api/chirps", config.handleCreateChirp)
+		serveMux.HandleFunc("POST /api/chirps", config.middlewareAuthorizeUser(config.handleCreateChirp))
 
 		serveMux.HandleFunc("GET /api/chirps", config.handleGetChirps)
 
@@ -79,6 +79,10 @@ func main() {
 		serveMux.HandleFunc("POST /api/refresh", config.handleRefresh)
 
 		serveMux.HandleFunc("POST /api/revoke", config.handleRevoke)
+
+		serveMux.HandleFunc("PUT /api/users", config.middlewareAuthorizeUser(config.handleUpdateUser))
+
+		serveMux.HandleFunc("DELETE /api/chirps/{id}", config.middlewareAuthorizeUser(config.handleDeleteChirp))
 
 		server := &http.Server{
 			Addr:    ":8080",

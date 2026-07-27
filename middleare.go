@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/smail1111/chirpy/internal/auth"
 	"github.com/smail1111/chirpy/internal/database"
 )
 
@@ -70,5 +71,31 @@ func convertUser(user database.User) User {
 		user.CreatedAt,
 		user.UpdatedAt,
 		user.Email,
+	}
+}
+
+func (cfg *apiConfig) middlewareAuthorizeUser(handler func(rs http.ResponseWriter, rq *http.Request,
+	user database.User)) func(http.ResponseWriter, *http.Request) {
+
+	return func(rs http.ResponseWriter, rq *http.Request) {
+		headerToken, er := auth.GetBearerToken(rq.Header)
+		if er != nil {
+			returnErrorResponse(rs, 401, er.Error())
+			return
+		}
+
+		id, er := auth.ValidateJWT(headerToken, cfg.secret)
+		if er != nil {
+			returnErrorResponse(rs, 401, er.Error())
+			return
+		}
+
+		user, er := cfg.queries.GetUserByID(rq.Context(), id.String())
+		if er != nil {
+			returnErrorResponse(rs, 404, er.Error())
+			return
+		}
+
+		handler(rs, rq, user)
 	}
 }

@@ -51,14 +51,14 @@ func (cfg *apiConfig) handleCreateUser(rs http.ResponseWriter, rq *http.Request)
 	} else {
 		hashed_password, er := auth.HashPassword(input.Password)
 		if er != nil {
-			returnErrorResponse(rs, 400, er.Error())
+			returnErrorResponse(rs, 500, er.Error())
 		} else {
 			user, er := cfg.queries.CreateUser(rq.Context(), database.CreateUserParams{
 				Email:          input.Email,
 				HashedPassword: hashed_password,
 			})
 			if er != nil {
-				returnErrorResponse(rs, 400, er.Error())
+				returnErrorResponse(rs, 500, er.Error())
 			} else {
 				returnJsonResponse(rs, 201, convertUser(user))
 			}
@@ -66,38 +66,29 @@ func (cfg *apiConfig) handleCreateUser(rs http.ResponseWriter, rq *http.Request)
 	}
 }
 
-func (cfg *apiConfig) handleCreateChirp(rs http.ResponseWriter, rq *http.Request) {
+func (cfg *apiConfig) handleCreateChirp(rs http.ResponseWriter, rq *http.Request, user database.User) {
 	type Input struct {
 		Body string `json:"body"`
 	}
 
-	token, er := auth.GetBearerToken(rq.Header)
+	input := Input{}
+	decoder := json.NewDecoder(rq.Body)
+
+	er := decoder.Decode(&input)
 	if er != nil {
 		returnErrorResponse(rs, 400, er.Error())
 	} else {
-		id, er := auth.ValidateJWT(token, cfg.secret)
-		if er != nil {
-			returnErrorResponse(rs, 401, "Unauthorized")
+		if strings.Count((input.Body), "")-1 > 140 {
+			returnErrorResponse(rs, 400, "Chirp is too long")
 		} else {
-			input := Input{}
-			decoder := json.NewDecoder(rq.Body)
-			er = decoder.Decode(&input)
+			chirp, er := cfg.queries.CreateChirp(rq.Context(), database.CreateChirpParams{
+				Body:   censorBadWords(input.Body),
+				UserID: user.ID,
+			})
 			if er != nil {
-				returnErrorResponse(rs, 400, er.Error())
+				returnErrorResponse(rs, 500, er.Error())
 			} else {
-				if strings.Count((input.Body), "")-1 > 140 {
-					returnErrorResponse(rs, 400, "Chirp is too long")
-				} else {
-					chirp, er := cfg.queries.CreateChirp(rq.Context(), database.CreateChirpParams{
-						Body:   censorBadWords(input.Body),
-						UserID: id.String(),
-					})
-					if er != nil {
-						returnErrorResponse(rs, 400, er.Error())
-					} else {
-						returnJsonResponse(rs, 201, convertChirp(chirp))
-					}
-				}
+				returnJsonResponse(rs, 201, convertChirp(chirp))
 			}
 		}
 	}
@@ -106,7 +97,7 @@ func (cfg *apiConfig) handleCreateChirp(rs http.ResponseWriter, rq *http.Request
 func (cfg *apiConfig) handleGetChirps(rs http.ResponseWriter, rq *http.Request) {
 	chirps, er := cfg.queries.GetChirps(rq.Context())
 	if er != nil {
-		returnErrorResponse(rs, 400, er.Error())
+		returnErrorResponse(rs, 500, er.Error())
 	} else {
 		json_chirps := []Chirp{}
 		for _, chirp := range chirps {
@@ -141,15 +132,15 @@ func (cfg *apiConfig) handleLogin(rs http.ResponseWriter, rq *http.Request) {
 	} else {
 		user, er := cfg.queries.GetUserByEmail(rq.Context(), input.Email)
 		if er != nil {
-			returnErrorResponse(rs, 400, er.Error())
+			returnErrorResponse(rs, 404, er.Error())
 		} else {
 			matched, er := auth.CheckPasswordHash(input.Password, user.HashedPassword)
 			if er != nil {
-				returnErrorResponse(rs, 400, er.Error())
+				returnErrorResponse(rs, 500, er.Error())
 			} else if matched {
 				token, er := auth.MakeJWT(uuid.MustParse(user.ID), cfg.secret, time.Second*3600)
 				if er != nil {
-					returnErrorResponse(rs, 400, er.Error())
+					returnErrorResponse(rs, 500, er.Error())
 				} else {
 					refreshToken := auth.MakeRefreshToken()
 
@@ -159,7 +150,7 @@ func (cfg *apiConfig) handleLogin(rs http.ResponseWriter, rq *http.Request) {
 					})
 
 					if er != nil {
-						returnErrorResponse(rs, 400, er.Error())
+						returnErrorResponse(rs, 500, er.Error())
 					} else {
 						returnJsonResponse(rs, 200, struct {
 							User
@@ -182,25 +173,25 @@ func (cfg *apiConfig) handleLogin(rs http.ResponseWriter, rq *http.Request) {
 func (cfg *apiConfig) handleRefresh(rs http.ResponseWriter, rq *http.Request) {
 	headerToken, er := auth.GetBearerToken(rq.Header)
 	if er != nil {
-		returnErrorResponse(rs, 400, er.Error())
+		returnErrorResponse(rs, 401, er.Error())
 		return
 	}
 
-	refreshToken, er := cfg.queries.GetRefreshToken(rq.Context(), headerToken)
-	if er != nil || refreshToken.RevokedAt.Valid == true {
+	token, er := cfg.queries.GetRefreshToken(rq.Context(), headerToken)
+	if er != nil || token.RevokedAt.Valid == true {
 		returnErrorResponse(rs, 401, "Unauthorized")
 		return
 	}
 
-	user, er := cfg.queries.GetUserFromRefreshToken(rq.Context(), refreshToken.Token)
+	user, er := cfg.queries.GetUserFromRefreshToken(rq.Context(), token.Token)
 	if er != nil {
-		returnErrorResponse(rs, 400, er.Error())
+		returnErrorResponse(rs, 404, er.Error())
 		return
 	}
 
 	accessToken, er := auth.MakeJWT(uuid.MustParse(user.ID), cfg.secret, time.Second*3600)
 	if er != nil {
-		returnErrorResponse(rs, 400, er.Error())
+		returnErrorResponse(rs, 500, er.Error())
 		return
 	}
 
@@ -212,15 +203,73 @@ func (cfg *apiConfig) handleRefresh(rs http.ResponseWriter, rq *http.Request) {
 }
 
 func (cfg *apiConfig) handleRevoke(rs http.ResponseWriter, rq *http.Request) {
-	token, er := auth.GetBearerToken(rq.Header)
+	headerToken, er := auth.GetBearerToken(rq.Header)
+	if er != nil {
+		returnErrorResponse(rs, 401, er.Error())
+		return
+	}
+
+	er = cfg.queries.RevokeRefreshToken(rq.Context(), headerToken)
+	if er != nil {
+		returnErrorResponse(rs, 404, er.Error())
+		return
+	}
+
+	rs.WriteHeader(204)
+}
+
+func (cfg *apiConfig) handleUpdateUser(rs http.ResponseWriter, rq *http.Request, user database.User) {
+	type Input struct {
+		Email    string `json:"email"`
+		Password string `josn:"password"`
+	}
+
+	input := Input{}
+	decoder := json.NewDecoder(rq.Body)
+
+	er := decoder.Decode(&input)
 	if er != nil {
 		returnErrorResponse(rs, 400, er.Error())
 		return
 	}
 
-	er = cfg.queries.RevokeRefreshToken(rq.Context(), token)
+	hashedPassword, er := auth.HashPassword(input.Password)
 	if er != nil {
-		returnErrorResponse(rs, 400, er.Error())
+		returnErrorResponse(rs, 500, er.Error())
+		return
+	}
+
+	updatedUser, er := cfg.queries.UpdateUser(rq.Context(), database.UpdateUserParams{
+		Email:          input.Email,
+		HashedPassword: hashedPassword,
+		ID:             user.ID,
+	})
+
+	if er != nil {
+		returnErrorResponse(rs, 500, er.Error())
+		return
+	}
+
+	returnJsonResponse(rs, 200, convertUser(updatedUser))
+}
+
+func (cfg *apiConfig) handleDeleteChirp(rs http.ResponseWriter, rq *http.Request, user database.User) {
+	id := rq.PathValue("id")
+
+	chirp, er := cfg.queries.GetChirp(rq.Context(), id)
+	if er != nil {
+		returnErrorResponse(rs, 404, er.Error())
+		return
+	}
+
+	if chirp.UserID != user.ID {
+		returnErrorResponse(rs, 403, "Forbidden")
+		return
+	}
+
+	er = cfg.queries.DeleteChirp(rq.Context(), chirp.ID)
+	if er != nil {
+		returnErrorResponse(rs, 500, er.Error())
 		return
 	}
 

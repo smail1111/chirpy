@@ -7,8 +7,6 @@ package database
 
 import (
 	"context"
-	"database/sql"
-	"time"
 )
 
 const createRefreshToken = `-- name: CreateRefreshToken :one
@@ -61,41 +59,21 @@ func (q *Queries) GetRefreshToken(ctx context.Context, token string) (RefreshTok
 }
 
 const getUserFromRefreshToken = `-- name: GetUserFromRefreshToken :one
-select id, users.created_at, users.updated_at, email, hashed_password, token, refresh_tokens.created_at, refresh_tokens.updated_at, user_id, expires_at, revoked_at from users
+select users.id, users.created_at, users.updated_at, users.email, users.hashed_password from users
 join refresh_tokens on refresh_tokens.user_id = users.id
 where refresh_tokens.token = $1
 limit 1
 `
 
-type GetUserFromRefreshTokenRow struct {
-	ID             string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-	Email          string
-	HashedPassword string
-	Token          string
-	CreatedAt_2    time.Time
-	UpdatedAt_2    time.Time
-	UserID         string
-	ExpiresAt      time.Time
-	RevokedAt      sql.NullTime
-}
-
-func (q *Queries) GetUserFromRefreshToken(ctx context.Context, token string) (GetUserFromRefreshTokenRow, error) {
+func (q *Queries) GetUserFromRefreshToken(ctx context.Context, token string) (User, error) {
 	row := q.db.QueryRowContext(ctx, getUserFromRefreshToken, token)
-	var i GetUserFromRefreshTokenRow
+	var i User
 	err := row.Scan(
 		&i.ID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Email,
 		&i.HashedPassword,
-		&i.Token,
-		&i.CreatedAt_2,
-		&i.UpdatedAt_2,
-		&i.UserID,
-		&i.ExpiresAt,
-		&i.RevokedAt,
 	)
 	return i, err
 }
