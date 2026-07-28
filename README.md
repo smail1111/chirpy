@@ -71,10 +71,10 @@ In the same directory, create a file named `.env` with the following contents.
 
 
 ```
-DB_URL= { YOUR OWN DATABASE CONNECTION STRING }
+DB_URL={ YOUR OWN DATABASE CONNECTION STRING }
 PLATFORM="dev"
-SECRET= { YOUR OWN SECRET STRING }
-POLKA_KEY= { YOUR OWN KEY STRING }
+SECRET={ YOUR OWN SECRET STRING }
+POLKA_KEY={ YOUR OWN KEY STRING }
 ```
 
 
@@ -114,13 +114,13 @@ This will host chirpy at `http://localhost:8080`
 `GET` -> Returns the fileserver hosted from the base directory
 
 
-2. `admin/metrics`
+2. `/admin/metrics`
 
 
 `GET` -> Returns the number of times the `/app` resource has been visited.
 
 
-3. `admin/reset`
+3. `/admin/reset`
 
 
 `POST` -> Resets the entire database. Your platform must be `dev` to use this command.
@@ -175,7 +175,7 @@ Input JSON ->
 ```
 
 
-6. `api/chirps/{id}`
+6. `/api/chirps/{id}`
 
 
 `GET` -> Returns a JSON response containing a specific chirp's information based on the provided id in the url.
@@ -186,7 +186,7 @@ A valid access token must in request's Authorization header,
 and the access token must be for the user that created the chirp to use.
 
 
-7. `api/login`
+7. `/api/login`
 
 
 `POST` -> If the password for the user in the database with the given email is correct,
@@ -219,19 +219,20 @@ A valid refresh token must be in the request's Authorization header to use.
 `POST` -> Revoke the refresh token in the request's Authorization header.
 
 
-10. `api/polka/webhooks`
+10. `/api/polka/webhooks`
 
 
 `POST` -> Upgrades a user in the database with the given user_id within the given data to chirpyRed.
 An ApiKey must be in the request's Authorization header and the ApiKey must match with the secret POLKA_KEY to use.
+The event must be equal to `"user.upgraded"` for the request to be processed.
 
 Input JSON -> 
 
 ```
 {
-    "event": {string},
+    "event": "user.upgraded",
     "data": {
-        "user_id": string
+        "user_id": {string}
     }
 }
 ```
